@@ -1,20 +1,31 @@
+Below is the updated documentation that reflects the new middleware, which automatically prefixes both top‐level and nested redirect URLs with the correct version folder. This updated guide explains the new code structure and how it works with nested questions and redirects.
+
+---
+
 # Version Control in the GOV.UK Prototype Kit
 
-This guide explains how to implement version control in the GOV.UK Prototype Kit, allowing you to manage multiple versions of your prototype while keeping the routing process mostly automated. The approach ensures that forms and redirects work seamlessly across versions without hardcoding version-specific paths.
+This guide explains how to implement version control in the GOV.UK Prototype Kit. The approach lets you manage multiple versions of your prototype while keeping routing mostly automated. It now supports nested routes—so redirects from pages in subdirectories are correctly prefixed with the version folder (e.g. `/v1` or `/v2`)—without requiring you to hardcode version-specific paths in your HTML or route handlers.
+
+For a working example, please refer to [this repo](https://github.com/harry-uxd/GOVUK_prototype_kit_version_control).
 
 ---
 
 ## Key Features
 
-1. **Version-Agnostic Forms**: HTML forms do not require hardcoded `action` attributes, making them reusable across versions.
-2. **Automated Routing**: Middleware automatically prefixes redirects with the correct version path (e.g., `/v1/question-1`).
-3. **Scalable Structure**: Adding a new version is straightforward and requires minimal changes.
+1. **Version-Agnostic Forms**:  
+   HTML forms do not require hardcoded `action` attributes. They submit to the current URL, which already includes the version prefix.
 
-------
+2. **Automated Routing and Redirects**:  
+   A single middleware automatically prefixes all redirects with the correct version folder—even for nested routes—ensuring that navigation stays within the appropriate version.
+
+3. **Scalable and Maintainable**:  
+   Adding a new version is straightforward. The routing logic and middleware are defined once and work across all versions, regardless of folder depth.
+
+---
 
 ## Code Structure
 
-The prototype is organized as follows:
+The project is organized as follows:
 
 ```
 /project-root
@@ -23,96 +34,143 @@ The prototype is organized as follows:
   │   └── views/
   │       ├── v1/
   │       │   ├── routing.js
-  │       │   └── question-1.html
-  │       │   └── question-2.html
+  │       │   ├── question-1.html
+  │       │   ├── question-2.html
+  │       │   └── nested/
+  │       │       ├── question-1.html
+  │       │       └── question-2.html
   │       └── v2/
   │           ├── routing.js
-  │           └── question-1.html
+  │           ├── question-1.html
   │           └── question-2.html
 ```
 
-- **`routes.js`**: Mounts version-specific routers under `/v1`, `/v2`, etc.
-- **`v1/routing.js`**: Defines routes and middleware for version 1.
-- **`v1/question-1.html`**: HTML page for question 1.
-- **`v1/question-2.html`**: HTML page for question 2.
+- **`routes.js`**:  
+  Mounts version-specific routers under `/v1`, `/v2`, etc.
+
+- **`v1/routing.js` and `v2/routing.js`**:  
+  Define the routes and middleware for each version. The middleware here is now enhanced to work for nested routes.
+
+- **HTML Files**:  
+  The forms in these files omit the `action` attribute (or use relative URLs), allowing the browser to submit to the current URL that already includes the version.
 
 ---
 
 ## How It Works
 
-### 1. **Form Submissions Without `action` Attributes**
+### 1. **Form Submissions Without Hardcoding the Version**
 
-In the HTML forms, the `action` attribute is omitted. This allows the form to submit to the current URL path, which already includes the version prefix (e.g., `/v1/question-1`).
+By omitting the `action` attribute (or using a relative URL), a form submits to the current URL. For example, if you’re on `/v1/question-1` or `/v1/nested/question-1`, the submission goes to that same path. This means no version-specific code is required in your HTML.
 
 #### Example Form
 
 ```html
-<form method="post" novalidate>
-  <h1 class="govuk-heading-xl">Question 1</h1>
-  <button type="submit" class="govuk-button" data-module="govuk-button">
-    Continue
-  </button>
-</form>
+{% extends "layouts/main.html" %}
+{% set pageName="Question 1" %}
+
+{% block content %}
+<div class="govuk-grid-row">
+  <div class="govuk-grid-column-two-thirds">
+    <!-- The form submits to the current URL (e.g. /v1/question-1 or /v1/nested/question-1) -->
+    <form method="post" novalidate>
+      <h1 class="govuk-heading-xl">Question 1</h1>
+      <button type="submit" class="govuk-button" data-module="govuk-button">
+        Continue
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}
 ```
 
-- **Why This Works**: When the form is submitted, it POSTs to the current URL (e.g., `/v1/question-1`). The middleware then handles the redirects, ensuring they stay within the same version.
-
-------
+---
 
 ### 2. **Middleware for Automated Redirects**
 
-A middleware function overrides `res.redirect` to automatically prefix redirect URLs with the current version's base path.
+A middleware function in each version’s `routing.js` overrides `res.redirect` so that if you call, for example, `res.redirect('/question-2')` or `res.redirect('/nested/question-2')`, the middleware automatically prepends the current router’s base URL (e.g. `/v1` or `/v2`). This works regardless of whether the route is at the top level or within a nested directory.
 
-#### Middleware Code
+#### Updated Middleware Code
 
 ```javascript
-subRouter.use((req, res, next) => {
-  const originalRedirect = res.redirect;
-  res.redirect = function (url) {
-    if (url.startsWith('/')) {
-      url = req.baseUrl + url; 
-    }
-    return originalRedirect.call(this, url);
-  };
-  next();
-});
+module.exports = () => {
+  const govukPrototypeKit = require('govuk-prototype-kit');
+  const subRouter = govukPrototypeKit.requests.setupRouter();
+
+  // Middleware to auto-prefix redirects with the top-level folder (e.g. /v1 or /v2)
+  // This works for both top-level and nested routes.
+  subRouter.use((req, res, next) => {
+    const originalRedirect = res.redirect;
+    res.redirect = function(url) {
+      // If the URL is absolute and does not already start with req.baseUrl,
+      // then automatically prefix it with req.baseUrl.
+      if (url.startsWith('/') && !url.startsWith(req.baseUrl)) {
+        url = req.baseUrl + url;
+      }
+      return originalRedirect.call(this, url);
+    };
+    next();
+  });
+
+  // Define your routes. These definitions remain unchanged.
+  subRouter.post('/question-1', (req, res) => {
+    res.redirect('/question-2');
+  });
+
+  subRouter.post('/question-2', (req, res) => {
+    res.redirect('/question-1');
+  });
+
+  // Define nested routes by using the full nested path.
+  subRouter.post('/nested/question-1', (req, res) => {
+    res.redirect('/nested/question-2');
+  });
+
+  subRouter.post('/nested/question-2', (req, res) => {
+    res.redirect('/nested/question-1');
+  });
+
+  return subRouter;
+};
 ```
 
-- **How It Works**: When a redirect is triggered (e.g., `res.redirect('/question-2')`), the middleware prepends the version prefix (e.g., `/v1/question-2`).
+- **How It Works**:  
+  - **`req.baseUrl`** is automatically set by Express when the router is mounted (e.g., `/v1` or `/v2`).  
+  - When a route handler calls `res.redirect('/nested/question-2')`, the middleware checks if the URL already starts with the version prefix. If it doesn’t, it prepends the `req.baseUrl`.  
+  - This means that regardless of whether your route is defined as `/question-1` or `/nested/question-1`, a redirect will always include the correct version folder.
 
-------
+---
 
 ### 3. **Defining Routes**
 
-Routes are version specific and are defined in the `routing.js` file located in `v1` and `v2` directories. Because the middleware automatically handles the version, we only need to define the routes once.
-
-#### Example Route Definition
+Because the middleware handles prefixing automatically, your route definitions remain simple and version-agnostic. For instance:
 
 ```javascript
+// Top-level routes in v1
 subRouter.post('/question-1', (req, res) => {
-  res.redirect('/question-2'); // The middleware will automatically prefix this with the version, e.g., /v1/question-2
+  res.redirect('/question-2'); // becomes /v1/question-2
+});
+
+subRouter.post('/question-2', (req, res) => {
+  res.redirect('/question-1'); // becomes /v1/question-1
+});
+
+// Nested routes in v1
+subRouter.post('/nested/question-1', (req, res) => {
+  res.redirect('/nested/question-2'); // becomes /v1/nested/question-2
+});
+
+subRouter.post('/nested/question-2', (req, res) => {
+  res.redirect('/nested/question-1'); // becomes /v1/nested/question-1
 });
 ```
 
-In this example, the [`subRouter.post('/question-1', ...)`](vscode-file://vscode-app/private/var/folders/s8/8myp68jx75n9v9mpfrg9kp4m0000gn/T/AppTranslocation/F2F077E9-9EFC-4965-987B-355CD59C8C65/d/Visual Studio Code.app/Contents/Resources/app/out/vs/code/electron-sandbox/workbench/workbench.html) line corresponds to handling form submissions from the `question-1.html` file in the `v1` directory. 
+Because the middleware automatically prefixes with `req.baseUrl`, the code above works seamlessly in both top-level and nested directories.
 
-To handle routes from another file in the same directory, for example, `sign-in.html` You should write the following,
-
-``` javascript
-subRouter.post('/sign-in', (req, res) => {
-  res.redirect('/question-2'); 
-});
-```
-
-
-
-------
+---
 
 ### 4. **Mounting Version-Specific Routers**
 
-In the central `routes.js` file, each version's router is mounted under its respective base path.
-
-#### Example `routes.js`
+In the central `routes.js` file, each version’s router is mounted under its respective base path. For example:
 
 ```javascript
 const govukPrototypeKit = require('govuk-prototype-kit');
@@ -125,58 +183,74 @@ router.use('/v2', require('./views/v2/routing')());
 module.exports = router;
 ```
 
-- **How It Works**: Requests to `/v1/question-1` are handled by the `v1` router, while requests to `/v2/question-1` are handled by the `v2` router.
+- **How It Works**:  
+  Requests to `/v1/...` are handled by the `v1` router, and requests to `/v2/...` are handled by the `v2` router. The `req.baseUrl` value (e.g. `/v1`) is used by the middleware to ensure that redirects always remain in the correct version.
 
-------
+---
 
 ## Creating a New Version
 
-To add a new version (e.g., `v3`), follow these steps:
+To add a new version (e.g., `v3`):
 
-1. **Create a New Directory**:
+1. **Create a New Directory**:  
+   Duplicate an existing version folder (such as `v2`) and rename it to `v3`.
 
-   - Duplicate the `v2` directory and rename it to `v3`.
+2. **Mount the New Router**:  
+   In `routes.js`, add:
+   ```javascript
+   router.use('/v3', require('./views/v3/routing')());
+   ```
 
-2. **Mount the New Router**:
+3. **Test the New Version**:  
+   Visit `http://localhost:3000/v3/question-1` to verify that both top-level and nested routes and redirects work as expected.
 
-   - In `routes.js`, add a new line to mount the `v3` router:
-
-     ```javascript
-     router.use('/v3', require('./views/v3/routing')());
-     ```
-
-3. **Test the New Version**:
-
-   - Access `http://localhost:3000/v3/question-1` and verify that forms and redirects work as expected.
-
-------
+---
 
 ## Benefits of This Approach
 
-1. **No Hardcoding**: Forms and routes do not require version-specific paths, making them reusable across versions.
-2. **Automated Routing**: Middleware handles redirects, ensuring they stay within the correct version.
-3. **Scalable**: Adding new versions is quick and easy.
+1. **No Hardcoding of Version-Specific Paths**:  
+   Both your HTML and route handlers remain version-agnostic.
 
-------
+2. **Automated and Consistent Routing**:  
+   The middleware ensures that all redirects—whether from top-level or nested routes—automatically include the correct version prefix.
+
+3. **Scalable and Extensible**:  
+   Adding new versions or supporting more complex folder structures requires minimal changes.
+
+---
 
 ## Example Workflow
 
 1. **Access Version 1**:
-   - Go to `http://localhost:3000/v1/question-1`.
-   - Submit the form → Redirects to `/v1/question-2`.
-2. **Access Version 2**:
-   - Go to `http://localhost:3000/v2/question-1`.
-   - Submit the form → Redirects to `/v2/question-2`.
+   - Navigate to `http://localhost:3000/v1/question-1`.
+   - Submit the form; the POST request is handled by the v1 router and the redirect is automatically prefixed to `/v1/question-2`.
 
-------
+2. **Access Nested Routes in Version 1**:
+   - Navigate to `http://localhost:3000/v1/nested/question-1`.
+   - Submit the form; the POST request is handled by the v1 router and the redirect is automatically prefixed to `/v1/nested/question-2`.
+
+3. **Access Version 2**:
+   - Navigate to `http://localhost:3000/v2/question-1` and verify similar behavior.
+
+---
 
 ## Troubleshooting
 
-- **404 Errors**: Ensure the `routes.js` file mounts each version's router correctly (e.g., `/v1`, `/v2`).
-- **Incorrect Redirects**: Verify that the middleware is correctly prefixing redirect URLs with `req.baseUrl`.
+- **404 Errors**:  
+  Ensure that the routers are correctly mounted in `routes.js` and that the middleware is properly applied.
 
-------
+- **Incorrect Redirects**:  
+  Verify that the middleware is correctly checking if the URL already starts with `req.baseUrl` and that it’s not duplicating the version prefix.
 
-## Resources:
+- **Nested Routes Issues**:  
+  Confirm that your route definitions in nested directories use the full path (e.g., `/nested/question-1`), so the middleware can correctly append the top-level folder.
 
-<link to github repo>
+---
+
+## Resources
+
+- [GitHub repo with examples](https://github.com/harry-uxd/GOVUK_prototype_kit_version_control)
+
+---
+
+This updated documentation should now clearly explain how the new middleware works—including support for nested routes—and how the overall routing structure is maintained across multiple versions.
