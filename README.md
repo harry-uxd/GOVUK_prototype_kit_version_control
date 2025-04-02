@@ -1,7 +1,3 @@
-Below is the updated documentation that reflects the new middleware, which automatically prefixes both top‐level and nested redirect URLs with the correct version folder. This updated guide explains the new code structure and how it works with nested questions and redirects.
-
----
-
 # Version Control in the GOV.UK Prototype Kit
 
 This guide explains how to implement version control in the GOV.UK Prototype Kit. The approach lets you manage multiple versions of your prototype while keeping routing mostly automated. It now supports nested routes—so redirects from pages in subdirectories are correctly prefixed with the version folder (e.g. `/v1` or `/v2`)—without requiring you to hardcode version-specific paths in your HTML or route handlers.
